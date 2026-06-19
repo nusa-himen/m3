@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Full-Screen Video Player</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body, html {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      background: #000;
+    }
+
+    .player-wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      height: 100dvh; /* better mobile viewport handling (address bar, etc.) */
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end; /* Ensure the controls are at the bottom */
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover; /* This ensures the video covers the entire screen */
+      background: #000;
+    }
+
+    /* Quality selector container at top */
+    .controls-top {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      background: rgba(17, 24, 39, 0.8); /* Semi-transparent background */
+      padding: 8px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      position: absolute;
+      top: env(safe-area-inset-top, 0px);
+      right: env(safe-area-inset-right, 0px);
+      left: env(safe-area-inset-left, 0px);
+      z-index: 10;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    /* Settings gear icon */
+    .settings-icon {
+      cursor: pointer;
+      font-size: 20px;
+      color: white;
+      margin-left: 10px;
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .settings-icon:hover {
+      transform: rotate(20deg);
+    }
+
+    /* Quality box */
+    .quality-box {
+      background: #facc15; /* yellow */
+      padding: 6px 10px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: bold;
+      color: black;
+      cursor: pointer;
+      position: relative;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .custom-select {
+      position: relative;
+    }
+
+    .select-selected {
+      background-color: white;
+      color: black;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      min-width: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 14px;
+    }
+
+    .select-arrow {
+      margin-left: 8px;
+    }
+
+    .select-items {
+      display: none;
+      position: absolute;
+      background-color: white;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      top: 100%;
+      left: 0;
+      right: 0;
+      z-index: 99;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .select-items div {
+      padding: 10px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .select-items div:hover {
+      background-color: #ddd;
+    }
+
+    button {
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.02);
+      color: inherit;
+    }
+
+    .info {
+      font-size: 13px;
+      opacity: .8;
+    }
+
+    .controls {
+      display: none;
+    }
+
+    /* ---------- Mobile breakpoints ---------- */
+    @media (max-width: 600px) {
+      .controls-top {
+        padding: 6px;
+        border-radius: 6px;
+      }
+
+      .quality-box {
+        padding: 5px 8px;
+        font-size: 12px;
+        gap: 4px;
+      }
+
+      .select-selected {
+        min-width: 64px;
+        padding: 6px 8px;
+        font-size: 12px;
+      }
+
+      .select-items div {
+        padding: 10px 8px; /* keep tap target tall even though font is small */
+        font-size: 12px;
+      }
+
+      .settings-icon {
+        font-size: 18px;
+        margin-left: 8px;
+      }
+    }
+
+    /* Landscape phones: keep top bar from eating too much height */
+    @media (max-width: 900px) and (orientation: landscape) {
+      .controls-top {
+        padding: 4px 6px;
+      }
+      .quality-box {
+        padding: 4px 6px;
+      }
+      .select-selected {
+        padding: 5px 8px;
+      }
+    }
+
+    /* Very small / narrow devices */
+    @media (max-width: 360px) {
+      .quality-box {
+        font-size: 11px;
+      }
+      .select-selected {
+        min-width: 56px;
+        font-size: 11px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="player-wrap">
+  <!-- Top controls -->
+  <div class="controls-top">
+    <div class="quality-box" id="qualitySelectBox">
+      Quality:
+      <div class="custom-select">
+        <div class="select-selected">Auto </div>
+        <div class="select-items"></div>
+      </div>
+    </div>
+    <div class="settings-icon" title="Settings">&#9881;</div>
+  </div>
+
+  <video id="video" controls playsinline webkit-playsinline controlsList="nodownload"></video>
+
+  <div class="controls">
+    <button id="reloadBtn">Reload</button>
+    <div style="flex:1"></div>
+    <div class="info" id="status">Status: idle</div>
+  </div>
+
+  <p class="info" style="margin-top:12px"></p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script>
+// Get MASTER_PLAYLIST URL from the query string
+const urlParams = new URLSearchParams(window.location.search);
+const MASTER_PLAYLIST = urlParams.get('url') || "https://live5.msrktz.app/live/88508431.m3u8"; // default URL if no query parameter
+
+const video = document.getElementById('video');
+const statusEl = document.getElementById('status');
+const reloadBtn = document.getElementById('reloadBtn');
+
+let hls = null;
+let qualities = [];
+
+function logStatus(msg) { statusEl.textContent = 'Status: ' + msg; }
+function isIOS() { return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+
+async function init() {
+  logStatus('initializing');
+  qualities = [];
+  setupCustomSelect(['Auto']);
+
+  if (Hls.isSupported()) {
+    logStatus('using hls.js');
+    hls = new Hls({ enableWorker: true, debug: false });
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(MASTER_PLAYLIST));
+    hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+      populateQualitiesFromHls(data.levels);
+      logStatus('manifest parsed — ' + data.levels.length + ' levels');
+    });
+    hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+      updateSelectedQualityLabel(data.level);
+      logStatus('level switched — ' + (hls.levels[data.level].height || hls.levels[data.level].bitrate));
+    });
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    logStatus('native HLS available');
+    try { await fetchAndParseMaster(MASTER_PLAYLIST); } catch (err) { console.warn(err); }
+    video.src = MASTER_PLAYLIST;
+  } else {
+    logStatus('HLS not supported');
+    video.innerHTML = 'Your browser does not support HLS playback.';
+  }
+}
+
+function populateQualitiesFromHls(levels) {
+  qualities = levels.map((lvl, idx) => ({ label: (lvl.height ? lvl.height + 'p' : Math.round(lvl.bitrate / 1000) + 'kbps'), index: idx }));
+  setupCustomSelect(['Auto', ...qualities.map(q => q.label)]);
+}
+
+function updateSelectedQualityLabel(level) {
+  const select = document.querySelector('.select-selected');
+  if (level === -1) select.textContent = 'Auto ';
+  else select.textContent = qualities[level].label + ' ';
+}
+
+async function fetchAndParseMaster(url) {
+  const res = await fetch(url, { mode: 'cors' });
+  const txt = await res.text();
+  const lines = txt.split(/\r?\n/);
+  const items = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith('#EXT-X-STREAM-INF')) {
+      const uri = lines[i + 1];
+      if (!uri) continue;
+      const bw = (lines[i].match(/BANDWIDTH=(\d+)/) || [0, 0])[1];
+      const reso = (lines[i].match(/RESOLUTION=(\d+x\d+)/) || [])[1] || '';
+      items.push({ label: reso ? reso.split('x')[1] + 'p' : Math.round(bw / 1000) + 'kbps', url });
+    }
+  }
+  qualities = items;
+  setupCustomSelect(['Auto', ...qualities.map(q => q.label)]);
+}
+
+function setupCustomSelect(options) {
+  const selected = document.querySelector('.select-selected');
+  const items = document.querySelector('.select-items');
+  items.innerHTML = '';
+  options.forEach((opt, idx) => {
+    const div = document.createElement('div');
+    div.textContent = opt;
+    div.addEventListener('click', async () => {
+      selected.textContent = opt + ' ';
+      await onQualityChange(idx === 0 ? 'auto' : (idx - 1).toString());
+      items.style.display = 'none';
+    });
+    items.appendChild(div);
+  });
+  selected.onclick = () => { items.style.display = items.style.display === 'block' ? 'none' : 'block'; };
+}
+
+async function onQualityChange(val) {
+  if (Hls.isSupported() && hls) {
+    if (val === 'auto') hls.currentLevel = -1;
+    else hls.currentLevel = parseInt(val, 10);
+  } else if (val !== 'auto') {
+    video.src = MASTER_PLAYLIST;
+  }
+}
+
+init();
+reloadBtn.onclick = () => { init(); video.play().catch(() => {}); };
+</script>
+
+</body>
+</html>
